@@ -1156,13 +1156,15 @@ async function generatePost(){
   });
   userContent.push({ type: 'text', text: userPrompt });
 
+  const maxTokensForBlog = (blogType === 'hipgoing') ? 3000 : 1500;
+
   try{
     const response = await fetch(WORKER_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "claude-sonnet-5",
-        max_tokens: 1500,
+        max_tokens: maxTokensForBlog,
         system: systemPrompt,
         messages: [
           { role: "user", content: userContent }
