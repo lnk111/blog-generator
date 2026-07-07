@@ -162,6 +162,76 @@
   .blog-badge.designfor{background:var(--accent-soft); color:var(--accent-deep);}
   .blog-badge.hipgoing{background:var(--sage-soft); color:#4E5A41;}
 
+  /* monthly keyword panel */
+  .kw-panel{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:20px 24px;
+    margin-bottom:22px;
+  }
+  .kw-panel-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    flex-wrap:wrap;
+    gap:10px;
+    margin-bottom:14px;
+  }
+  .kw-panel-head h2{
+    font-family:'Noto Serif KR', serif;
+    font-size:16px;
+    font-weight:600;
+    margin:0;
+  }
+  .kw-refresh-btn{
+    border:1px solid var(--line);
+    background:var(--surface);
+    color:var(--ink-soft);
+    border-radius:8px;
+    padding:7px 12px;
+    font-size:12.5px;
+    cursor:pointer;
+    font-family:'Noto Sans KR', sans-serif;
+  }
+  .kw-refresh-btn:hover{border-color:var(--accent); color:var(--accent-deep);}
+  .kw-note{font-size:12px; color:var(--ink-soft); margin-bottom:14px; line-height:1.6;}
+  .kw-category{margin-bottom:14px;}
+  .kw-category:last-child{margin-bottom:0;}
+  .kw-category-label{
+    font-size:12px;
+    font-weight:700;
+    color:var(--accent-deep);
+    margin-bottom:8px;
+  }
+  .kw-chip-row{display:flex; flex-wrap:wrap; gap:8px;}
+  .kw-chip{
+    border:1px solid var(--line);
+    background:#FCFAF6;
+    border-radius:999px;
+    padding:7px 14px;
+    font-size:13px;
+    cursor:pointer;
+    color:var(--ink);
+    text-align:left;
+    font-family:'Noto Sans KR', sans-serif;
+    transition:border-color .15s ease, background .15s ease;
+    position:relative;
+  }
+  .kw-chip:hover{border-color:var(--accent); background:var(--accent-soft);}
+  .kw-chip .kw-reason{
+    display:block;
+    font-size:10.5px;
+    color:var(--ink-soft);
+    margin-top:2px;
+    max-width:220px;
+  }
+  .kw-empty, .kw-loading{
+    font-size:13px;
+    color:var(--ink-soft);
+    padding:10px 2px;
+  }
+
   button.primary{
     width:100%;
     background:var(--accent);
@@ -410,6 +480,17 @@
     </div>
   </header>
 
+  <div class="kw-panel">
+    <div class="kw-panel-head">
+      <h2 id="kwPanelTitle">🗓 이달의 키워드 추천</h2>
+      <button class="kw-refresh-btn" id="kwRefreshBtn">다시 추천받기</button>
+    </div>
+    <div class="kw-note">계절성과 리빙/인테리어 업계의 일반적인 월별 관심사를 바탕으로 Claude가 추천하는 키워드예요. 실제 검색량 순위 데이터가 아니라 참고용 아이디어예요. 키워드를 클릭하면 왼쪽 입력창에 바로 채워져요.</div>
+    <div id="kwResults">
+      <div class="kw-empty">아직 추천을 받지 않았어요. "다시 추천받기"를 눌러보세요.</div>
+    </div>
+  </div>
+
   <div class="grid">
     <!-- input panel -->
     <div class="panel">
@@ -597,6 +678,124 @@ function renderThumbnails(){
   }
 }
 
+
+// ---- 이달의 키워드 추천 ----
+const kwResultsEl = document.getElementById('kwResults');
+const kwRefreshBtn = document.getElementById('kwRefreshBtn');
+const kwPanelTitle = document.getElementById('kwPanelTitle');
+
+function currentMonthKey(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+
+function getMonthLabel(){
+  return `${new Date().getMonth()+1}월`;
+}
+
+async function loadMonthlyKeywords(forceRefresh){
+  const cacheKey = `monthlyKeywords:${currentMonthKey()}`;
+  kwPanelTitle.textContent = `🗓 ${getMonthLabel()}의 키워드 추천`;
+
+  if(!forceRefresh){
+    try{
+      const cached = localStorage.getItem(cacheKey);
+      if(cached){
+        renderMonthlyKeywords(JSON.parse(cached));
+        return;
+      }
+    }catch(e){ /* ignore corrupted cache */ }
+  }
+
+  kwResultsEl.innerHTML = `<div class="kw-loading">${getMonthLabel()} 키워드를 생각하는 중이에요...</div>`;
+  kwRefreshBtn.disabled = true;
+
+  const systemPrompt = `당신은 한국 리빙/인테리어 블로그의 키워드 기획자입니다.
+지금은 ${getMonthLabel()}입니다. 이 시점의 계절적 특징(날씨, 생활 이벤트, 이사철/방학/명절 여부 등)과, 리빙·인테리어 업계에서 이 시기에 일반적으로 관심이 높아지는 주제들을 바탕으로 이달의 추천 키워드를 뽑아주세요.
+
+카테고리는 정확히 2개로 나눕니다:
+1. "인테리어" - 아파트 시공, 공간 리모델링, 자재/마감 관련 키워드 (디자인포 블로그용)
+2. "리빙" - 생활 소품, 리빙 아이템, 라이프스타일 팁 관련 키워드 (힙고잉 블로그용)
+
+각 카테고리마다 키워드 4~5개를 제안하고, 왜 이 시기에 이 키워드가 관심을 끌만한지 12자 내외의 짧은 이유를 함께 답니다.
+
+반드시 아래 JSON 형식으로만 답하세요. 다른 설명, 인사말, 마크다운 코드블록 없이 순수 JSON 객체 하나만 출력합니다.
+{
+  "month": "${getMonthLabel()}",
+  "categories": [
+    {"category": "인테리어", "keywords": [{"keyword": "키워드", "reason": "짧은 이유"}]},
+    {"category": "리빙", "keywords": [{"keyword": "키워드", "reason": "짧은 이유"}]}
+  ]
+}`;
+
+  try{
+    const response = await fetch(WORKER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-5",
+        max_tokens: 1000,
+        system: systemPrompt,
+        messages: [
+          { role: "user", content: `${getMonthLabel()} 리빙/인테리어 추천 키워드를 JSON으로 작성해주세요.` }
+        ],
+      })
+    });
+
+    if(!response.ok) throw new Error(`API 요청 실패 (${response.status})`);
+
+    const data = await response.json();
+    const textBlocks = (data.content || []).filter(b => b.type === 'text').map(b => b.text);
+    let raw = textBlocks.join('\n').trim();
+    raw = raw.replace(/^```json\s*/i, '').replace(/^```\s*/,'').replace(/```\s*$/,'').trim();
+
+    const parsed = JSON.parse(raw);
+    if(!Array.isArray(parsed.categories)) throw new Error('형식이 올바르지 않아요.');
+
+    localStorage.setItem(cacheKey, JSON.stringify(parsed));
+    renderMonthlyKeywords(parsed);
+
+  }catch(e){
+    console.error('monthly keyword error', e);
+    kwResultsEl.innerHTML = `<div class="kw-empty">키워드 추천을 불러오지 못했어요. 다시 시도해주세요.</div>`;
+  }finally{
+    kwRefreshBtn.disabled = false;
+  }
+}
+
+function renderMonthlyKeywords(data){
+  if(!data.categories || !data.categories.length){
+    kwResultsEl.innerHTML = `<div class="kw-empty">추천 결과가 없어요.</div>`;
+    return;
+  }
+  kwResultsEl.innerHTML = data.categories.map(cat => `
+    <div class="kw-category">
+      <div class="kw-category-label">${escapeHtml(cat.category)}</div>
+      <div class="kw-chip-row">
+        ${(cat.keywords || []).map(k => `
+          <button class="kw-chip" data-keyword="${escapeHtml(k.keyword)}" data-category="${escapeHtml(cat.category)}">
+            ${escapeHtml(k.keyword)}
+            <span class="kw-reason">${escapeHtml(k.reason || '')}</span>
+          </button>
+        `).join('')}
+      </div>
+    </div>
+  `).join('');
+
+  kwResultsEl.querySelectorAll('.kw-chip').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const kw = btn.getAttribute('data-keyword');
+      const cat = btn.getAttribute('data-category');
+      document.getElementById('keyword').value = kw;
+      document.getElementById('blogType').value = (cat === '리빙') ? 'hipgoing' : 'designfor';
+      document.getElementById('keyword').scrollIntoView({behavior:'smooth', block:'center'});
+      document.getElementById('keyword').focus();
+    });
+  });
+}
+
+kwRefreshBtn.addEventListener('click', ()=> loadMonthlyKeywords(true));
+loadMonthlyKeywords(false);
 
 const genBtn = document.getElementById('genBtn');
 const errorArea = document.getElementById('errorArea');
